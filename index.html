@@ -12,6 +12,10 @@
   :root { --bg:#fff; --fg:#1d1d1f; --mut:#6e6e73; --line:#d2d2d7; --field:#f5f5f7; --accent:#0071e3; --accent-h:#0077ed; }
   @media (prefers-color-scheme: dark) { :root { --bg:#000; --fg:#f5f5f7; --mut:#a1a1a6; --line:#38383a; --field:#1c1c1e; } }
   [hidden] { display:none !important; }
+  /* Durante a AR o fundo precisa ser transparente: a câmera e o canvas ficam com z-index negativo. */
+  html.ar, html.ar body { background: transparent !important; }
+  /* O MindAR dimensiona câmera e canvas pelo tamanho deste contêiner. */
+  #root { position:fixed; inset:0; overflow:hidden; }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); overflow:hidden;
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased; }
   #start { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:0 24px; text-align:center; z-index:10; background:var(--bg); }
@@ -122,6 +126,21 @@ sb.auth.onAuthStateChange((event, session) => {
   loadContent(session);
 });
 
+// Ajusta a textura para "cobrir" o plano (como object-fit: cover), sem esticar o vídeo.
+function coverImage(plane, video, planeAspect) {
+  const fit = () => {
+    const tex = plane.getObject3D("mesh")?.material?.map;
+    if (!tex || !video.videoWidth) return false;
+    const hv = video.videoHeight / video.videoWidth;
+    tex.repeat.set(1, 1); tex.offset.set(0, 0);
+    if (hv > planeAspect) { tex.repeat.y = planeAspect / hv; tex.offset.y = (1 - tex.repeat.y) / 2; }
+    else { tex.repeat.x = hv / planeAspect; tex.offset.x = (1 - tex.repeat.x) / 2; }
+    return true;
+  };
+  const iv = setInterval(() => { if (fit()) clearInterval(iv); }, 300);
+  setTimeout(() => clearInterval(iv), 20000);
+}
+
 $("go").onclick = () => {
   const vids = manifest.map((t, i) =>
     `<video id="v${i}" src="${videoUrls[i]}" crossorigin="anonymous" loop playsinline webkit-playsinline preload="auto"></video>`).join("");
@@ -130,11 +149,12 @@ $("go").onclick = () => {
   $("root").innerHTML = `
     <a-scene mindar-image="imageTargetSrc: ${mindUrl}; uiScanning: yes; uiLoading: yes; filterMinCF:0.0001; filterBeta:0.001"
       color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false"
-      device-orientation-permission-ui="enabled: false" embedded style="position:fixed;inset:0">
+      device-orientation-permission-ui="enabled: false" embedded style="width:100%;height:100%">
       <a-assets>${vids}</a-assets>
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
       ${ents}
     </a-scene>`;
+  document.documentElement.classList.add("ar");
   $("start").style.display = "none";
   $("hint").style.display = "block";
   $("exit").style.display = "block";
@@ -147,6 +167,7 @@ $("go").onclick = () => {
     const ents = scene.querySelectorAll("[mindar-image-target]");
     manifest.forEach((_, i) => {
       const v = $("v" + i);
+      coverImage(ents[i].querySelector("a-video"), v, manifest[i].aspect);
       ents[i].addEventListener("targetFound", () => { $("hint").style.display = "none"; v.currentTime = 0; v.play(); });
       ents[i].addEventListener("targetLost", () => { v.pause(); $("hint").style.display = "block"; });
     });
