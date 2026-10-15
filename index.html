@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>AR Vídeos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe-master.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 <script src="config.js"></script>
 <style>
@@ -24,6 +24,9 @@
   button:hover { background:var(--accent-h); }
   button:active { transform:scale(.98); }
   button:disabled { opacity:.4; }
+  .pw { position:relative; display:flex; }
+  .pw input { flex:1; padding-right:84px; }
+  .pw button.link { position:absolute; right:4px; top:50%; transform:translateY(-50%); padding:6px 12px; font-size:.85rem; }
   button.link { background:transparent; color:var(--accent); font-size:.95rem; padding:8px 16px; }
   #hint { position:fixed; bottom:max(32px,env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); z-index:5; pointer-events:none; display:none;
     padding:10px 20px; border-radius:980px; font-size:.95rem; color:#fff; background:rgba(30,30,32,.55); -webkit-backdrop-filter:blur(20px) saturate(180%); backdrop-filter:blur(20px) saturate(180%); white-space:nowrap; }
@@ -38,7 +41,7 @@
 
   <form id="login">
     <input id="user" placeholder="Login" autocapitalize="none" autocomplete="username" required>
-    <input id="pass" type="password" placeholder="Senha" autocomplete="current-password" required>
+    <div class="pw"><input id="pass" type="password" placeholder="Senha" autocomplete="current-password" required><button type="button" class="link" aria-label="Mostrar ou ocultar a senha">Mostrar</button></div>
     <button id="loginBtn">Entrar</button>
   </form>
 
@@ -103,6 +106,13 @@ $("login").onsubmit = async e => {
   $("loginBtn").disabled = false;
   if (error) $("msg").textContent = "Login ou senha incorretos.";
 };
+// Botão "Mostrar/Ocultar" dos campos de senha.
+document.querySelectorAll(".pw button").forEach(b => b.onclick = () => {
+  const i = b.parentElement.querySelector("input"), show = i.type === "password";
+  i.type = show ? "text" : "password"; b.textContent = show ? "Ocultar" : "Mostrar";
+  b.setAttribute("aria-pressed", show);
+});
+
 $("logout").onclick = () => sb.auth.signOut();
 $("exit").onclick = () => location.reload();
 
