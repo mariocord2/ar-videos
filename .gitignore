@@ -1,0 +1,5 @@
+.env
+*.token
+supabase-token*
+.secrets/
+supabase/.temp/
