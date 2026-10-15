@@ -3,3 +3,4 @@
 supabase-token*
 .secrets/
 supabase/.temp/
+assets/
