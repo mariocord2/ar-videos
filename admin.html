@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin AR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+<script src="config.js"></script>
+<style>
+  :root { --bg:#f5f5f7; --card:#fff; --fg:#1d1d1f; --mut:#6e6e73; --line:#d2d2d7; --field:#f5f5f7; --accent:#0071e3; --accent-h:#0077ed; --danger:#d70015; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#000; --card:#1c1c1e; --fg:#f5f5f7; --mut:#a1a1a6; --line:#38383a; --field:#2c2c2e; --danger:#ff453a; } }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; padding:32px 16px; background:var(--bg); color:var(--fg); max-width:600px; margin-inline:auto; -webkit-font-smoothing:antialiased;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Helvetica,Arial,sans-serif; }
+  h1 { font-size:2rem; font-weight:600; letter-spacing:-.03em; margin:0 0 24px; }
+  h2 { font-size:1.15rem; font-weight:600; margin:0 0 4px; }
+  .card { background:var(--card); border-radius:18px; padding:20px; margin-bottom:16px; display:flex; flex-direction:column; gap:8px; }
+  input { font:inherit; padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--field); color:var(--fg); margin-bottom:8px; }
+  input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  button { font:inherit; padding:12px 24px; border-radius:980px; border:0; background:var(--accent); color:#fff; cursor:pointer; transition:background .2s; margin-top:4px; }
+  button:hover { background:var(--accent-h); }
+  button:disabled { opacity:.4; }
+  button.ghost { background:transparent; color:var(--accent); padding:6px 12px; margin:0; }
+  button.ghost:hover { background:var(--field); }
+  button.del { background:transparent; color:var(--danger); padding:6px 12px; margin:0; }
+  button.del:hover { background:var(--field); }
+  label { color:var(--mut); font-size:.8rem; font-weight:500; }
+  .item { display:flex; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .item:last-child { border-bottom:0; }
+  .item img { width:56px; height:56px; object-fit:cover; border-radius:12px; }
+  .item .name { flex:1; font-weight:500; word-break:break-word; min-width:8ch; }
+  .item small { display:block; color:var(--mut); font-weight:400; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  #status { color:var(--mut); min-height:1.2em; font-size:.9rem; margin:0 4px 16px; }
+  .cred { background:var(--field); border-radius:12px; padding:12px 14px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.95rem; line-height:1.6; user-select:all; }
+</style>
+</head>
+<body>
+<h1>Administração</h1>
+
+<form id="login" class="card">
+  <label>E-mail do administrador</label><input id="email" type="email" required>
+  <label>Senha</label><input id="pass" type="password" required>
+  <button>Entrar</button>
+</form>
+
+<div id="status"></div>
+
+<!-- Lista de clientes -->
+<div id="clientsView" hidden>
+  <form id="newClient" class="card">
+    <h2>Novo cliente</h2>
+    <label>Nome</label><input id="cName" required>
+    <label>Login</label><input id="cLogin" required autocapitalize="none" autocomplete="off" placeholder="ex.: loja-centro">
+    <label>Senha (vazio = gerar automaticamente)</label><input id="cPass" autocomplete="off">
+    <button id="cBtn">Criar cliente</button>
+  </form>
+
+  <div id="credCard" class="card" hidden>
+    <h2>Acesso criado</h2>
+    <div class="cred" id="credText"></div>
+    <label>Anote agora: a senha não pode ser consultada depois (só redefinida).</label>
+  </div>
+
+  <div id="clientList" class="card"></div>
+  <button class="ghost" id="logout">Sair</button>
+</div>
+
+<!-- Detalhe de um cliente -->
+<div id="detailView" hidden>
+  <button class="ghost" id="back">‹ Clientes</button>
+  <h1 id="dTitle" style="margin-top:8px"></h1>
+  <form id="add" class="card">
+    <h2>Adicionar imagem + vídeo</h2>
+    <label>Nome</label><input id="name" required>
+    <label>Imagem-alvo (com bastante detalhe e contraste)</label>
+    <input id="img" type="file" accept="image/jpeg,image/png" required>
+    <label>Vídeo curto (MP4 H.264, até 50 MB)</label>
+    <input id="vid" type="file" accept="video/mp4" required>
+    <button id="addBtn">Cadastrar</button>
+  </form>
+  <div id="list" class="card"></div>
+</div>
+
+<script>
+const C = window.AR_CONFIG;
+const sb = supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY);
+const bucket = () => sb.storage.from(C.BUCKET);
+const $ = id => document.getElementById(id);
+const status = t => $("status").textContent = t || "";
+let current = null;   // cliente aberto
+let manifest = [];
+
+/* ---------- utilidades ---------- */
+async function callFn(body) {
+  const { data, error } = await sb.functions.invoke("manage-clients", { body });
+  if (error) {
+    let msg = error.message;
+    try { msg = (await error.context.json()).error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return data;
+}
+function show(view) {
+  $("clientsView").hidden = view !== "clients";
+  $("detailView").hidden = view !== "detail";
+  $("login").hidden = view !== "login";
+}
+
+/* ---------- clientes ---------- */
+async function loadClients() {
+  const { data, error } = await sb.from("clients").select("*").order("created_at", { ascending: false });
+  if (error) return status("Erro: " + error.message);
+  const box = $("clientList");
+  box.innerHTML = data.length ? "" : "<span style='color:var(--mut)'>Nenhum cliente ainda.</span>";
+  data.forEach(c => {
+    const d = document.createElement("div");
+    d.className = "item";
+    d.innerHTML = `<div class="name"></div><button class="ghost" data-a="open">Abrir</button><button class="ghost" data-a="reset">Nova senha</button><button class="del" data-a="del">Excluir</button>`;
+    d.querySelector(".name").innerHTML = `<span></span><small></small>`;
+    d.querySelector(".name span").textContent = c.name;
+    d.querySelector("small").textContent = "login: " + c.login;
+    d.querySelector('[data-a="open"]').onclick = () => openClient(c);
+    d.querySelector('[data-a="reset"]').onclick = async () => {
+      const p = prompt(`Nova senha para "${c.login}" (vazio = gerar):`, "");
+      if (p === null) return;
+      try { showCred(await callFn({ action: "reset", id: c.id, password: p })); } catch (e) { status("Erro: " + e.message); }
+    };
+    d.querySelector('[data-a="del"]').onclick = async () => {
+      if (!confirm(`Excluir "${c.name}" e TODAS as imagens/vídeos dele?`)) return;
+      try { await callFn({ action: "delete", id: c.id }); loadClients(); } catch (e) { status("Erro: " + e.message); }
+    };
+    box.append(d);
+  });
+}
+function showCred(r) {
+  $("credText").textContent = `Link: ${new URL("index.html", location.href).href}\nLogin: ${r.login}\nSenha: ${r.password}`;
+  $("credCard").hidden = false;
+  $("credCard").scrollIntoView({ behavior: "smooth" });
+}
+$("newClient").onsubmit = async e => {
+  e.preventDefault();
+  $("cBtn").disabled = true; status("Criando cliente…");
+  try {
+    const r = await callFn({ action: "create", name: $("cName").value, login: $("cLogin").value, password: $("cPass").value });
+    showCred(r); $("newClient").reset(); status(""); loadClients();
+  } catch (err) { status("Erro: " + err.message); }
+  $("cBtn").disabled = false;
+};
+
+/* ---------- imagens/vídeos de um cliente ---------- */
+const P = p => `${current.id}/${p}`;
+
+async function openClient(c) {
+  current = c;
+  $("dTitle").textContent = c.name;
+  show("detail"); status("");
+  try {
+    const { data, error } = await bucket().download(P("targets.json"));
+    manifest = error ? [] : JSON.parse(await data.text());
+  } catch { manifest = []; }
+  render();
+}
+async function render() {
+  const box = $("list");
+  box.innerHTML = manifest.length ? "" : "<span style='color:var(--mut)'>Nada cadastrado.</span>";
+  const urls = manifest.length ? (await bucket().createSignedUrls(manifest.map(t => t.imgPath), 3600)).data || [] : [];
+  manifest.forEach((t, i) => {
+    const d = document.createElement("div");
+    d.className = "item";
+    d.innerHTML = `<img alt=""><div class="name"></div><button class="del">Excluir</button>`;
+    d.querySelector("img").src = urls[i]?.signedUrl || "";
+    d.querySelector(".name").textContent = t.name;
+    d.querySelector("button").onclick = () => removeTarget(t.id);
+    box.append(d);
+  });
+}
+async function up(path, body, type) {
+  const { error } = await bucket().upload(path, body, { upsert: true, contentType: type, cacheControl: "0" });
+  if (error) throw error;
+}
+async function loadImg(path) {
+  const { data, error } = await bucket().download(path);
+  if (error) throw error;
+  const url = URL.createObjectURL(data);
+  return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+}
+async function publish() {
+  if (!manifest.length) {
+    await bucket().remove([P("targets.mind")]);
+  } else {
+    status("Compilando imagens (pode levar alguns segundos)…");
+    const imgs = [];
+    for (const t of manifest) imgs.push(await loadImg(t.imgPath));
+    const comp = new window.MINDAR.IMAGE.Compiler();
+    await comp.compileImageTargets(imgs, p => status(`Compilando… ${Math.round(p)}%`));
+    await up(P("targets.mind"), new Blob([await comp.exportData()]), "application/octet-stream");
+  }
+  await up(P("targets.json"), new Blob([JSON.stringify(manifest)]), "application/json");
+  await render();
+  status("Publicado ✔");
+}
+$("add").onsubmit = async e => {
+  e.preventDefault();
+  $("addBtn").disabled = true;
+  try {
+    const id = Date.now().toString(36);
+    const img = $("img").files[0], vid = $("vid").files[0];
+    if (vid.size > 50 * 1024 * 1024) throw new Error("Vídeo maior que 50 MB");
+    const imgPath = P(`images/${id}.${img.type === "image/png" ? "png" : "jpg"}`);
+    const videoPath = P(`videos/${id}.mp4`);
+    status("Enviando imagem…"); await up(imgPath, img, img.type);
+    status("Enviando vídeo…"); await up(videoPath, vid, "video/mp4");
+    const el = await loadImg(imgPath);
+    manifest.push({ id, name: $("name").value, imgPath, videoPath, aspect: +(el.naturalHeight / el.naturalWidth).toFixed(4) });
+    await publish();
+    $("add").reset();
+  } catch (err) { status("Erro: " + (err.message || err)); await openClient(current); }
+  $("addBtn").disabled = false;
+};
+async function removeTarget(id) {
+  const t = manifest.find(x => x.id === id);
+  if (!t || !confirm(`Excluir "${t.name}"?`)) return;
+  try {
+    manifest = manifest.filter(x => x.id !== id);
+    await publish();
+    await bucket().remove([t.imgPath, t.videoPath]);
+  } catch (err) { status("Erro: " + (err.message || err)); }
+}
+$("back").onclick = () => { current = null; show("clients"); status(""); loadClients(); };
+
+/* ---------- autenticação ---------- */
+$("login").onsubmit = async e => {
+  e.preventDefault();
+  const { error } = await sb.auth.signInWithPassword({ email: $("email").value, password: $("pass").value });
+  if (error) status("Login falhou: " + error.message);
+};
+$("logout").onclick = () => sb.auth.signOut();
+
+sb.auth.onAuthStateChange((_, s) => {
+  if (!s) { show("login"); return; }
+  if (s.user.app_metadata?.role !== "admin") {
+    status("Esta conta não é de administrador.");
+    sb.auth.signOut(); return;
+  }
+  status(""); show("clients"); loadClients();
+});
+</script>
+</body>
+</html>
