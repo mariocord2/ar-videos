@@ -46,6 +46,7 @@
 </head>
 <body>
 <h1>Administração</h1>
+<p style="margin:-16px 0 20px;color:var(--mut);font-size:.8rem">versão 2026-10-14d</p>
 
 <form id="login" class="card">
   <label>E-mail do administrador</label><input id="email" type="email" required>
@@ -166,10 +167,10 @@ $("newClient").onsubmit = async e => {
 /* ---------- imagens/vídeos de um cliente ---------- */
 const P = p => `${current.id}/${p}`;
 
-async function openClient(c) {
+async function openClient(c, keepStatus) {
   current = c;
   $("dTitle").textContent = c.name;
-  show("detail"); status("");
+  show("detail"); if (!keepStatus) status("");
   try {
     const { data, error } = await bucket().download(P("targets.json"));
     manifest = error ? [] : JSON.parse(await data.text());
@@ -207,8 +208,14 @@ async function publish() {
     status("Compilando imagens (pode levar alguns segundos)…");
     const imgs = [];
     for (const t of manifest) imgs.push(await loadImg(t.imgPath));
+    if (!window.MINDAR?.IMAGE?.Compiler) throw new Error("O compilador de imagens não carregou. Atualize a página com Ctrl+F5 e tente de novo.");
     const comp = new window.MINDAR.IMAGE.Compiler();
-    await comp.compileImageTargets(imgs, p => status(`Compilando… ${Math.round(p)}%`));
+    try {
+      await comp.compileImageTargets(imgs, p => status(`Compilando… ${Math.round(p)}%`));
+    } catch (ce) {
+      console.error(ce);
+      throw new Error("Falha ao compilar a imagem (" + (ce.message || ce) + "). O navegador precisa ter WebGL ativo; tente no Chrome do computador ou use outra imagem, com mais detalhes.");
+    }
     await up(P("targets.mind"), new Blob([await comp.exportData()]), "application/octet-stream");
   }
   await up(P("targets.json"), new Blob([JSON.stringify(manifest)]), "application/json");
@@ -218,6 +225,7 @@ async function publish() {
 $("add").onsubmit = async e => {
   e.preventDefault();
   $("addBtn").disabled = true;
+  const uploaded = [];
   try {
     const id = Date.now().toString(36);
     const img = $("img").files[0], vid = $("vid").files[0];
@@ -238,20 +246,27 @@ $("add").onsubmit = async e => {
       }
     } catch (ce) {
       if (vid.type !== "video/mp4") throw new Error("Não foi possível converter o vídeo: " + ce.message);
-      note = " · compressão indisponível, enviado o original";
+      console.error(ce);
+      note = ` · compressão indisponível (${ce.message || ce}), enviado o original`;
     }
     if (vblob.size > LIMIT) throw new Error(`Vídeo com ${mb(vblob.size)} após a compressão (limite 50 MB). Use "Menor arquivo" ou um vídeo mais curto.`);
 
     const imgPath = P(`images/${id}.${img.type === "image/png" ? "png" : "jpg"}`);
     const videoPath = P(`videos/${id}.mp4`);
-    status("Enviando imagem…"); await up(imgPath, img, img.type);
-    status("Enviando vídeo…"); await up(videoPath, vblob, "video/mp4");
+    status("Enviando imagem…"); await up(imgPath, img, img.type); uploaded.push(imgPath);
+    status("Enviando vídeo…"); await up(videoPath, vblob, "video/mp4"); uploaded.push(videoPath);
     const el = await loadImg(imgPath);
     manifest.push({ id, name: $("name").value, imgPath, videoPath, aspect: +(el.naturalHeight / el.naturalWidth).toFixed(4) });
     await publish();
     status("Publicado ✔" + note);
     $("add").reset();
-  } catch (err) { status("Erro: " + (err.message || err)); await openClient(current); }
+  } catch (err) {
+    console.error(err);
+    const msg = "Erro: " + (err.message || err);
+    if (uploaded.length) await bucket().remove(uploaded).catch(() => {});  // não deixa arquivos órfãos
+    await openClient(current, true);
+    status(msg + " (nada foi cadastrado)");
+  }
   $("addBtn").disabled = false;
 };
 async function removeTarget(id) {
