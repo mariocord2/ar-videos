@@ -56,7 +56,9 @@ const C = window.AR_CONFIG;
 const EMAIL_DOMAIN = "ar.app";
 const sb = supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY);
 const $ = id => document.getElementById(id);
-let manifest = [], videoUrls = [], mindUrl = "";
+let manifest = [], videoUrls = [], mindUrl = "", keepMsg = false;
+
+const toEmail = v => { v = v.trim().toLowerCase(); return v.includes("@") ? v : `${v}@${EMAIL_DOMAIN}`; };
 
 function view(name) {
   $("login").hidden = name !== "login";
@@ -65,7 +67,13 @@ function view(name) {
 
 async function loadContent(session) {
   const cid = session.user.app_metadata?.client_id;
-  if (!cid) { $("msg").textContent = "Esta conta não é de cliente."; await sb.auth.signOut(); return; }
+  if (!cid) {
+    const adm = session.user.app_metadata?.role === "admin";
+    keepMsg = true;
+    await sb.auth.signOut();
+    $("msg").innerHTML = adm ? 'Esta é a conta de administrador. <a href="admin.html">Abrir o painel</a>.' : "Esta conta não é de cliente.";
+    return;
+  }
   view("none"); $("msg").textContent = "Carregando…";
   try {
     const st = sb.storage.from(C.BUCKET);
@@ -91,7 +99,7 @@ $("login").onsubmit = async e => {
   e.preventDefault();
   $("loginBtn").disabled = true;
   const { error } = await sb.auth.signInWithPassword({
-    email: `${$("user").value.trim().toLowerCase()}@${EMAIL_DOMAIN}`, password: $("pass").value });
+    email: toEmail($("user").value), password: $("pass").value });
   $("loginBtn").disabled = false;
   if (error) $("msg").textContent = "Login ou senha incorretos.";
 };
@@ -100,7 +108,7 @@ $("exit").onclick = () => location.reload();
 
 sb.auth.onAuthStateChange((event, session) => {
   if (event === "TOKEN_REFRESHED") return;
-  if (!session) { manifest = []; $("go").hidden = false; $("msg").textContent = "Entre com seu acesso."; view("login"); return; }
+  if (!session) { manifest = []; $("go").hidden = false; if (!keepMsg) $("msg").textContent = "Entre com seu acesso."; keepMsg = false; view("login"); return; }
   loadContent(session);
 });
 
