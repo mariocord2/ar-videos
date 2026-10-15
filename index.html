@@ -54,7 +54,7 @@
 <script>
 const C = window.AR_CONFIG;
 const EMAIL_DOMAIN = "ar.app";
-const sb = supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY);
+const sb = supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY, { auth: { storageKey: "ar-client-session" } });
 const $ = id => document.getElementById(id);
 let manifest = [], videoUrls = [], mindUrl = "", keepMsg = false;
 

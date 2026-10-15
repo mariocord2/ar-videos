@@ -86,7 +86,7 @@
 
 <script>
 const C = window.AR_CONFIG;
-const sb = supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY);
+const sb = supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY, { auth: { storageKey: "ar-admin-session" } });
 const bucket = () => sb.storage.from(C.BUCKET);
 const $ = id => document.getElementById(id);
 const status = t => $("status").textContent = t || "";
